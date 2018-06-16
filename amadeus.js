@@ -53,7 +53,7 @@ bot.on("message", (message) => {
       let server = message.guild;
       let type = args.shift(); //type of channel is either text or voice
       let name = args.shift(); //name of new channel
-      server.createChannel(name, "text");
+      server.createChannel(name, type);
       console.log("new "+type+" channel \'"+name+"\' created.");
   }
 

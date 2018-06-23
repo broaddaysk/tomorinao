@@ -10,7 +10,7 @@ const reddit = new Snoowrap({
 const topPostCount = 8;
 const Discord = require("discord.js");
 
-exports.run = async (client, message, args) => {
+exports.run = (client, message, command, args) => {
 	reddit.getHot("im14andthisisdeep").map(post => post.url).then(post => {
 		let randIdx;
 		do {

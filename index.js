@@ -41,24 +41,32 @@ var currentPlugData = undefined;    // Plug.dj data for the currently playing so
 var firstSongID = 0;        // ID of the first song played. Used to place songs before it when building a playlist while listening to it.
 var reconnecting = false; // Flag to show if you should send a message once we've reconnected.
 
-client.commandMap = new Enmap(); //map that stores commands as keys and their respective modules as vals
+client.aliasMap = new Enmap(); //map that stores command names as keys and their alias functions as vals
+client.commandMap = new Enmap(); //map that stores command names as keys and their respective modules as vals
 
 //loads all commands from ./commands/
+//returns error string if error encountered, false otherwise
 client.loadCommands = async () => {
 	//get list of command modules
 	const commandFiles = await readdir("./commands/");
 	console.log(`Loading a total of ${commandFiles.length} command(s)`);
-
-	//fill client.commandMap with commandName:commandModule pairs
 	let numErrors = 0;
-	commandFiles.forEach(commandName => {
-		if (!commandName.endsWith(".js")) return;
+
+	//fill client.aliasMap and client.commandMap
+	commandFiles.forEach(commandFilename => {
+		if (!commandFilename.endsWith(".js")) return;
 	    try {
-			const props = require(`./commands/${commandName}`);
-			console.log(`Loading Command: ${commandName}`);
-			client.commandMap.set(commandName.slice(0,commandName.length-3), props);
+			const props = require(`./commands/${commandFilename}`); //load module
+			console.log(`Loading Command: ${commandFilename}`);
+			const command = commandFilename.slice(0,commandFilename.length-3);
+			
+			//fill client.aliasMap if it is a variable command
+			if (props.isAliasValid) {
+				client.aliasMap.set(command, props.isAliasValid);
+			}
+			client.commandMap.set(command, props);
 		} catch (err) {
-			console.error(`Unable to load command ${commandName}: ${err}`);
+			console.error(`Unable to load command ${command}: ${err}`);
 			numErrors++;
 		}
 	});
@@ -69,22 +77,36 @@ client.loadCommands = async () => {
 };
 
 //unload all commands from ./commands/
+//returns error string if error encountered, false otherwise
 client.unloadCommands = async () => {
-	//unload each loaded module
 	let numErrors = 0;
-	client.commandMap.keyArray().forEach(commandName => {
+
+	//remove each loaded module from cache
+	client.commandMap.keyArray().forEach(command => {
 		try {
-			delete require.cache[require.resolve(`./commands/${commandName}.js`)];
+			delete require.cache[require.resolve(`./commands/${command}.js`)];
 		} catch (err) {
-			console.error(`Unable to unload command ${commandName}: ${err}`);
+			console.error(`Unable to unload command ${command}: ${err}`);
 			numErrors++;
 		}
 	});
 
+	//clear client.aliasMap
+	if (client.aliasMap.keyArray().length > 0) {
+		try {
+			client.aliasMap.deleteAll();
+			console.log("Succesfully cleared aliasMap");
+		} catch (err) {
+			console.error(`Unable to clear client.aliasMap: ${err}`);
+			numErrors++;
+		}
+	}
+
 	//clear client.commandMap
-	if (client.commandMap.keyArray().length !== 0) {
+	if (client.commandMap.keyArray().length > 0) {
 		try {
 			client.commandMap.deleteAll();
+			console.log("Successfully cleared commandMap");
 		} catch (err) {
 			console.error(`Unable to clear client.commandMap: ${err}`);
 			numErrors++;
@@ -98,6 +120,12 @@ client.unloadCommands = async () => {
 
 //Discord/Plug.dj bot initialization
 const init = async () => {
+	//check user-specified prefix lengths
+	if (config.discord_regcmd_prefix.length !== 1 || config.discord_varcmd_prefix.length !== 1) {
+		console.error("Command prefixes in config required to be single character");
+		process.exit(1);
+	}
+
 	//load commands
 	const response = await client.loadCommands();
 	if (response) console.error(response);
@@ -145,88 +173,55 @@ botPlug.on('advance', function (data) {
 
 //Discord message handler
 client.on("message", (message) => {
-	const prefix = "!";
+	const regcmd_prefix = config.discord_regcmd_prefix;
+	const varcmd_prefix = config.discord_varcmd_prefix;
 
 	//split raw message into command and args
-	if (!message.content.trim().startsWith(prefix) || message.author.bot) return;
-	const args = message.content.slice(prefix.length).trim().split(/ +/g);
-	const cmd = args.shift().toLowerCase();
+	if (!(message.content.trim().startsWith(regcmd_prefix) || message.content.trim().startsWith(varcmd_prefix)) || message.author.bot) return;
+	const args = message.content.slice(1).trim().split(/ +/g);
+	const alias = args.shift().toLowerCase();
+
+	//convert variable command alias to its corresponding command name
+	let command;
+	if (message.content.trim().startsWith(varcmd_prefix)) {
+		let commandArr;
+		try {
+			//create array of command names for aliases that pass their respective validity checks, using client.aliasMap
+			commandArr = client.aliasMap.keyArray().filter((key) => {
+				const isAliasValid = client.aliasMap.get(key);
+				return isAliasValid(alias);
+			});
+		} catch (err) {
+			console.error("Unable to filter keys in client.aliasMap");
+		}
+
+		if (commandArr.length === 0) {
+			message.channel.send("Invalid command!"); //call help function, which will use reaction UI********************************************
+			return;
+		} else if (commandArr.length > 1) {
+			console.error("Alias resolves to multiple commands");
+			return;
+		} else {
+			command = commandArr.shift();
+		}
+	} else {
+		command = alias;
+	}
 
 	//run loaded commands from client.commandMap
-	let commandFile = client.commandMap.get(cmd);
+	const commandFile = client.commandMap.get(command);
 	if (!commandFile) {
-		message.channel.send("Invalid command!"); //call help function, which will use reaction UI
+		message.channel.send("Invalid command!"); //call help function, which will use reaction UI*******************************************************
 	} else {
 		try {
-			commandFile.run(client, message, args);
+			commandFile.run(client, message, alias, args); //alias is passed because each command already stores its primary name
 		} catch (err) {
-			console.error(`Unable to run command ${cmd}: ${err}`);
+			console.error(`Unable to run command ${command}: ${err}`);
 		}
 	}
 });
 
 
-
-
-
-/*
-
-	if (cmd.charAt(0)=="m" && cmd.charAt(cmd.length-1)=="a") {
-		const iStr = cmd.slice(1,-1);
-		const iCount = iStr.length;
-		var isValid = true;
-		for (var i=0; i<iCount; i++) {
-			if (iStr.charAt(i)!="i") {
-				isValid = false;
-				break;
-			}
-		}
-		if (isValid) {
-			if (iCount > 43) {
-				message.channel.send("snek 2 long");
-			} else {
-				var snekStr = "<:miia1:297947746969583617>";
-				for (var i=0; i<iCount; i++) {
-					snekStr += "<:miia2:297947755987337216>";
-				}
-				snekStr += "<:miia3:297947762463473675>" + "<:miia4:297947768973033475>";
-				message.channel.send(snekStr);
-			}
-		}
-	}
-
-	if (cmd === "a") {
-		const embed = new Discord.RichEmbed()
-		  .setTitle("This is your title, it can hold 256 characters")
-		  .setAuthor("Author Name", "https://i.imgur.com/lm8s41J.png")
-
-		   //Alternatively, use "#00AE86", [0, 174, 134] or an integer number.
-
-		  .setColor(0x00AE86)
-		  .setDescription("This is the main body of text, it can hold 2048 characters.")
-		  .setFooter("This is the footer text, it can hold 2048 characters", "http://i.imgur.com/w1vhFSR.png")
-		  .setImage("http://i.imgur.com/yVpymuV.png")
-		  .setThumbnail("http://i.imgur.com/p2qNFag.png")
-
-		   //Takes a Date object, defaults to current date.
-
-		  .setTimestamp()
-		  .setURL("https://discord.js.org/#/docs/main/indev/class/RichEmbed")
-		  .addField("This is a field title, it can hold 256 characters",
-		    "This is a field value, it can hold 2048 characters.")
-
-		   //Inline fields may not display as inline if the thumbnail and/or image is too big.
-
-		  .addField("<:thonkang:219069250692841473>", true)
-
-		   //Blank field, useful to create some space.
-
-		  .addBlankField(true)
-		  .addField("Inline Field 3", "You can have a maximum of 25 fields.", true);
-
-		  message.channel.send({embed});
-	}
-*/
 
 	/*
 	if (cmd === "set") {

@@ -1,4 +1,4 @@
-exports.run = async (client, message, args) => {
+exports.run = async (client, message, command, args) => {
 	let unloadResponse = await client.unloadCommands();
 	if (unloadResponse) console.error(unloadResponse);
 

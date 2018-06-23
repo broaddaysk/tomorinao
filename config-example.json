@@ -1,4 +1,6 @@
 {
+	"discord_regcmd_prefix": "!",
+	"discord_varcmd_prefix": "+",
 	"discord_token": "blank",
 	
 	"snoo_useragent": "blank",

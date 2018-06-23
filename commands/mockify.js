@@ -1,9 +1,9 @@
 const Discord = require("discord.js");
-const isLetterRegExp = new RegExp("^[a-zA-Z]$");
 
 const probabilityOfUpperCase = 75;
 
-exports.run = (client, message, args) => {
+exports.run = (client, message, command, args) => {
+	const isLetterRegExp = new RegExp("^[a-zA-Z]$");
 	let mockArr = args.map((word) => {
 		word.toLowerCase();
 		let replacementWord = "";

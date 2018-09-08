@@ -1,3 +1,4 @@
+//Temp bot used to test features before they are pushed to Tomori
 const Discord = require("discord.js");
 const bot = new Discord.Client();
 const config = require("./config.json");
